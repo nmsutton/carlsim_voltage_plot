@@ -1,0 +1,1 @@
+/usr/bin/c++ -rdynamic CMakeFiles/hello_world.dir/src/main_hello_world.o -o hello_world  -lcarlsim -lcarlsim-stopwatch 
