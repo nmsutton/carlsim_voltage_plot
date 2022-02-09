@@ -75,8 +75,9 @@ public:
 	#ifndef INT_MAX			// LN2021 g++
 	#define INT_MAX    2147483647	
 	#endif
-		//isi_ = std::abs(rate)<0.00001f ? INT_MAX : int(1000.f/rate); // inter-spike interval in ms
-		isi_ = int(1000.f/rate); // inter-spike interval in ms
+		isi_ = std::abs(rate)<0.00001f ? INT_MAX : int(1000.f/rate); // inter-spike interval in ms
+		//isi_ = int(1000.f/rate); // inter-spike interval in ms
+		//isi_ = int(1.f);
 		
 		spikeAtZero_ = spikeAtZero;
 

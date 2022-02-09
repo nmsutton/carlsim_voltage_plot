@@ -50,16 +50,12 @@
 
 // include CARLsim user interface
 #include <carlsim.h>
- 
 // include stopwatch for timing
 #include <stopwatch.h>
-
 #include <vector>
 #include <iostream>
-
 // write to file
 #include <fstream>
-
 #include "periodic_spikegen_custom.cpp"
 
 using namespace std;
@@ -67,47 +63,33 @@ using namespace std;
 int main() {
     // keep track of execution time
     Stopwatch watch;    
-
-    vector<vector<int>> nrn_spk; // for total firing recording
-    int s_num, spk_time;
-    int nrn_size;
  
-    // ---------------- CONFIG STATE -------------------
-    
+    // ---------------- CONFIG STATE -------------------    
     // create a network on GPU
-    int randSeed = 42;
-#ifdef __NO_CUDA__
-    int numGPUs = 1;
-    CARLsim sim("hello world", CPU_MODE, USER, numGPUs, randSeed);
-#else
-    //int numGPUs = 2;
-    int numGPUs = 1;  // Patch Killian
+    int randSeed = 42; int numGPUs = 1;
     CARLsim sim("hello world", GPU_MODE, USER, numGPUs, randSeed);
-#endif
  
     // configure the network
     // set up a COBA two-layer network with gaussian connectivity
     int x_size = 1;
     int y_size = 1;
-    Grid3D gridIn(x_size,y_size,1); // pre is on a 13x9 grid
-    Grid3D gridInh(x_size,y_size,1); // post is on a 3x3 grid
-    Grid3D gridOut(x_size,y_size,1); // post is on a 3x3 grid
+    Grid3D gridIn(x_size,y_size,1);
+    Grid3D gridInh(x_size,y_size,1);
+    Grid3D gridOut(x_size,y_size,1);
  
 #ifdef __NO_CUDA__
     int gin=sim.createSpikeGeneratorGroup("input", gridIn, EXCITATORY_NEURON, 0, CPU_CORES);
     int ginh=sim.createGroup("inhib", gridInh, INHIBITORY_NEURON, 0, CPU_CORES);
     int gout=sim.createGroup("output", gridOut, EXCITATORY_NEURON, 0, CPU_CORES);
 #else
-    /*
     int gin = sim.createSpikeGeneratorGroup("input", gridIn, EXCITATORY_NEURON, 0, GPU_CORES);
     int ginh=sim.createGroup("inhib", gridInh, INHIBITORY_NEURON, 0, GPU_CORES);
     int gout = sim.createGroup("output", gridOut, EXCITATORY_NEURON, 0, GPU_CORES);  // Patch Killian
-    */
-    int gin = sim.createSpikeGeneratorGroup("input", gridIn, EXCITATORY_NEURON, 0, CPU_CORES);
-    int ginh=sim.createGroup("inhib", gridInh, INHIBITORY_NEURON, 0, CPU_CORES);
-    int gout = sim.createGroup("output", gridOut, EXCITATORY_NEURON, 0, CPU_CORES);  // Patch Killian
 #endif
  
+    vector<vector<int>> nrn_spk; // for total firing recording
+    int s_num, spk_time;
+    int nrn_size;
     double inhib_level = 0.5;//1;
     ofstream outputfile;
     ofstream outputfile2;
@@ -118,19 +100,22 @@ int main() {
     //sim.setNeuronParameters(gout, 0.02f, 0.2f, -65.0f, 8.0f); // RS
     sim.setNeuronParameters(gout, 0.1f, 0.2f, -65.0f, 2.0f); // FS
     sim.setNeuronParameters(ginh, 0.1f, 0.2f, -65.0f, 2.0f); // FS
-    //sim.connect(gin, gout, "full", RangeWeight(0.03), 1.0f);
-    sim.connect(gin, gout, "one-to-one", 1.0, 1.0f);
-    sim.connect(ginh, gout, "one-to-one", RangeWeight(1), 1.0f);
-    sim.connect(gout, ginh, "one-to-one", RangeWeight(1), 1.0f);
+    sim.connect(gin, gout, "one-to-one", 0.094f, 1.0f);
+    sim.connect(ginh, gout, "one-to-one", 0.0f, 1.0f);
+    sim.connect(gout, ginh, "one-to-one", 0.0f, 1.0f);    
  
     sim.setConductances(true);
 
-    // baseline input    
+    // baseline input        
+    
     PeriodicSpikeGenerator in(100.0f, true);
-    sim.setSpikeGenerator(gin, &in);
+    sim.setSpikeGenerator(gin, &in);    
+    
 
     NeuronMonitor* nrn_mon = sim.setNeuronMonitor(gout,"DEFAULT");
+    NeuronMonitor* nrn_mon2 = sim.setNeuronMonitor(gin,"DEFAULT");
     nrn_mon->setPersistentData(true);
+    nrn_mon2->setPersistentData(true);
  
     // ---------------- SETUP STATE -------------------
     // build the network
@@ -138,71 +123,74 @@ int main() {
     sim.setupNetwork();
  
     // set some monitors
-    //sim.setSpikeMonitor(gin,"DEFAULT");
     SpikeMonitor* spk_mon =sim.setSpikeMonitor(gout,"DEFAULT");
-    //sim.setConnectionMonitor(gin,gout,"DEFAULT");
+    SpikeMonitor* spk_mon2 =sim.setSpikeMonitor(gin,"DEFAULT");
+    SpikeMonitor* rep_spk_mon = spk_mon;
+    NeuronMonitor* rep_nrn_mon = nrn_mon;
  
     //setup some baseline input    
     /*
     PoissonRate in(gridIn.N);
-    in.setRates(15.5f);
+    in.setRates(100.0f);
     sim.setSpikeRate(gin,&in);
     */
+    //sim.setExternalCurrent(gout, 3.9f);
 
     // ---------------- RUN STATE -------------------
     watch.lap("runNetwork");
     spk_mon->startRecording();
+    spk_mon2->startRecording();
     nrn_mon->startRecording();
+    nrn_mon2->startRecording();
+
+    /*
+    for (int i = 0; i < (x_size*y_size); i++) {
+        sim.setWeight(1,i,i,inhib_level,true);
+        sim.setWeight(2,i,i,inhib_level,true);
+    }
+    */    
  
-    // run for a total of 10 seconds
+    // run simulation
     // at the end of each runNetwork call, SpikeMonitor stats will be printed
     for (int i=0; i<runtime; i++) {
         sim.runNetwork(0,1, false);
-
-        for (int i = 0; i < (x_size*y_size); i++) {
-            sim.setWeight(1,i,i,inhib_level,true);
-            sim.setWeight(2,i,i,inhib_level,true);
-        }
-
-        /*
-        if (i % 600 == 0) {
-            nrn_mon->print();
-            //printf("\n%f",nrn_mon->getVectorV()[0][0]);
-            std::vector< std::vector< float > > test = nrn_mon->getVectorV();
-            int arrSize = sizeof(test[0])/sizeof(test[0][0]);
-            cout << "\narray size: " << arrSize << " " << sizeof(test[0]) << " " << sizeof(test[0][0]);
-            //cout << test[0][0];
-        }
-        */
     }
 
     // print stopwatch summary
     watch.stop();
 
     spk_mon->stopRecording();
+    spk_mon2->stopRecording();
     nrn_mon->stopRecording();
+    nrn_mon2->stopRecording();
 
-    std::vector< std::vector< float > > v_vec = nrn_mon->getVectorV();
+    // save voltage data
+    vector<vector<float>> v_vec = rep_nrn_mon->getVectorV(); // select spk mon
     for (int i=0; i<runtime; i++) {
         outputfile << v_vec[0][i];
         if (i != (runtime-1)) {outputfile << ",";}
     }
     // save spike times
-    nrn_spk = spk_mon->getSpikeVector2D();
+    printf("spike times:\n");
+    nrn_spk = rep_spk_mon->getSpikeVector2D(); // select nrn mon
     nrn_size = nrn_spk.size();
     for (int i = 0; i < nrn_size; i++) {
         s_num = nrn_spk[i].size();
         for (int j = 0; j < s_num; j++) {
             spk_time = nrn_spk[i][j];
+            printf("%d",spk_time);
             outputfile2 << spk_time;
             if (j != (s_num-1)) {
+                printf(",");
                 outputfile2 << ",";
             }
         }
     }
+    printf("\n");
 
     printf("\n\n");
     spk_mon->print(false);
+    spk_mon2->print(false);
 
     outputfile.close();
     outputfile2.close();
